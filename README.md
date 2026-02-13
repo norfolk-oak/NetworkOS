@@ -5,11 +5,11 @@
 
 **NetworkOS** is a custom, browser-accessible Linux desktop environment (LXDE) built for network analysis, security testing, and sysadmin tasks.
 
-## 🚀 One-Command Launch
+## 🚀 Launch Commands
 
 You don't need to install a VNC client. NetworkOS runs entirely in your web browser.
 
-### 1. Build
+### Build
 ```bash
 docker build -t networkos .
 ```
