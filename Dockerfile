@@ -5,10 +5,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
 ENV DISPLAY=:1
 ENV VNC_RESOLUTION=1280x720
+# --- SET YOUR PASSWORD HERE ---
+ENV VNC_PASSWORD=networkos_secure
 
-# 1. Install LXDE, VNC, NoVNC, and Networking tools
+# 1. Install XFCE4, VNC, NoVNC, and Networking tools
 RUN apt-get update && apt-get install -y \
-    lxde tigervnc-standalone-server novnc websockify \
+    xfce4 xfce4-goodies \
+    tigervnc-standalone-server novnc websockify \
     wget curl gpg git python3 sudo net-tools iputils-ping \
     nmap wireshark tcpdump iperf3 mtr dnsutils firefox \
     && apt-get clean
@@ -25,14 +28,19 @@ RUN dpkg --add-architecture i386 && mkdir -pm755 /etc/apt/keyrings && \
     wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources && \
     apt-get update && apt-get install --install-recommends -y winehq-stable
 
-# 4. Set vnc.html as Default + AUTO-RESIZE logic
-# This creates an index.html that redirects to vnc.html with the scaling parameter enabled
-RUN echo '<html><!-- Developed by LSmithx2 --><head><title>NetworkOS VNC</title><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale"></head></html>' > /usr/share/novnc/index.html
+# 4. Set up VNC Password
+RUN mkdir -p /root/.vnc && \
+    echo "$VNC_PASSWORD" | vncpasswd -f > /root/.vnc/passwd && \
+    chmod 600 /root/.vnc/passwd
 
-# 5. Startup Script (Created inside the image)
+# 5. Set Default Page & Auto-Resize
+RUN echo '<html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale"></head></html>' > /usr/share/novnc/index.html
+
+# 6. Startup Script
 RUN echo '#!/bin/bash\n\
 rm -rf /tmp/.X11-unix /tmp/.X*-lock\n\
-vncserver -SecurityTypes None -geometry $VNC_RESOLUTION $DISPLAY\n\
+# Start VNC with password protection enabled\n\
+vncserver -rfbauth /root/.vnc/passwd -geometry $VNC_RESOLUTION $DISPLAY -xstartup /usr/bin/startxfce4\n\
 /usr/share/novnc/utils/launch.sh --vnc localhost:5901 --listen 8080' > /entrypoint.sh && \
 chmod +x /entrypoint.sh
 
