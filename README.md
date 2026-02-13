@@ -18,6 +18,8 @@ You don't need to install a VNC client. NetworkOS runs entirely in your web brow
 ```bash
 docker build -t networkos .
 
-### Run
+
+
+#### Run
 ```bash
 docker run -d -p 8080:8080 --name networkos-lab networkos
