@@ -10,35 +10,44 @@
 
 ## 🚀 Overview
 
-**NetworkOS** is a browser-accessible Linux desktop (LXDE) built for:
+**NetworkOS** is a browser-accessible Linux desktop (LXDE) designed for:
 
 - 🌐 Network analysis  
 - 🔐 Security testing  
-- 🖥 Sysadmin operations  
+- 🖥 Sysadmin tasks  
 - 🧪 Lab environments  
 - 🪟 Running Windows tools via Wine  
 
-It provides a full GUI Linux environment that runs entirely inside a Docker container and is accessible via **noVNC** in your browser.
-
-No VM required. No local installs required.
+Everything runs inside a Docker container and is accessible via **noVNC** in your browser.
 
 ---
 
 # 📦 Features
 
-### 🖥 Desktop Environment
+## 🖥 Desktop Environment
 - LXDE lightweight GUI
-- Accessible via browser (noVNC)
+- Browser access via noVNC
 - Custom wallpaper support
-- Wireshark desktop shortcut
+- Angry IP Scanner shortcut on desktop
 - Auto-scaling display
 
-### 🌐 Network Toolkit
+## 🌐 Network Toolkit
+
+### Discovery & Scanning
 - `nmap`
 - `masscan`
 - `arp-scan`
 - `netdiscover`
 - `fping`
+- Angry IP Scanner (GUI)
+
+### Packet Analysis
+- Wireshark (installed, not pinned to desktop)
+- `tcpdump`
+- `tshark`
+- `tcpflow`
+
+### Connectivity & Diagnostics
 - `ping`
 - `tracepath`
 - `traceroute`
@@ -46,6 +55,8 @@ No VM required. No local installs required.
 - `iperf3`
 - `dnsutils`
 - `whois`
+
+### Network Utilities
 - `netcat`
 - `socat`
 - `ethtool`
@@ -53,27 +64,20 @@ No VM required. No local installs required.
 - `net-tools`
 - `lsof`
 
-### 📡 Packet Capture
-- Wireshark (GUI)
-- `tcpdump`
-- `tshark`
-- `tcpflow`
+---
 
-### 🌍 Browsers
+# 🌍 Browsers
+
 - Firefox
 - Google Chrome
 
-### 🪟 Windows Application Support
-- Wine (64-bit + 32-bit)
-- Winetricks
-- Supports many legacy Windows networking tools
-
 ---
 
-# 🔧 Requirements
+# 🪟 Windows Application Support
 
-- Docker 20+
-- Linux host recommended for full packet capture support
+- Wine (64-bit + 32-bit)
+- Winetricks
+- Suitable for many legacy Windows networking tools
 
 ---
 
@@ -96,7 +100,7 @@ docker run -d \
   networkos
 ```
 
-Then open:
+Open:
 
 ```
 http://localhost:8080
@@ -105,8 +109,6 @@ http://localhost:8080
 ---
 
 # 🔐 Enable Password Protection (Recommended)
-
-NetworkOS supports optional **HTTP Basic Auth** for noVNC.
 
 ```bash
 docker run -d \
@@ -119,15 +121,11 @@ docker run -d \
 
 If `NOVNC_PASSWORD` is not set, noVNC runs without authentication.
 
-> ⚠ If exposing publicly, always use HTTPS via reverse proxy and IP restrictions.
+⚠ If exposing publicly, use HTTPS via reverse proxy and IP restrictions.
 
 ---
 
 # 💾 Persistence
-
-By default, everything runs in memory.
-
-To persist user data:
 
 ```bash
 docker run -d \
@@ -140,18 +138,15 @@ docker run -d \
 
 This preserves:
 - Desktop files
-- Wine installations
-- Browser sessions
+- Wine installs
+- Browser data
 - User configs
-- Installed tools
 
 ---
 
 # 🐳 Recommended Docker Flags
 
-Some tools require additional privileges.
-
-## For ping, arp-scan, tcpdump, Wireshark capture:
+Some tools require extra capabilities:
 
 ```bash
 docker run -d \
@@ -161,7 +156,7 @@ docker run -d \
   networkos
 ```
 
-## To scan the host LAN (Linux only):
+To scan the host LAN (Linux only):
 
 ```bash
 docker run -d \
@@ -173,52 +168,106 @@ docker run -d \
 
 ---
 
-# 🪟 Running Windows Tools (Wine)
+# ☸ Kubernetes / Northflank / Cloud Notes
 
-Run an executable:
+This image is **heavy** (full desktop + Chrome + Firefox + Wine + Java).
+
+### Recommended minimum resources:
+
+- **4GB RAM minimum**
+- **6–8GB recommended**
+- 2 vCPU minimum
+
+If you see pods marked:
+
+```
+Evicted
+```
+
+It is almost always due to:
+
+- Memory pressure (OOM)
+- Node disk pressure
+- Resource limits too low
+
+### Recommended Kubernetes memory request/limit:
+
+```yaml
+resources:
+  requests:
+    memory: "4Gi"
+    cpu: "1000m"
+  limits:
+    memory: "8Gi"
+    cpu: "2000m"
+```
+
+---
+
+# 🏥 Optional Healthcheck
+
+Recommended addition to Dockerfile:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD curl -f http://localhost:8080 || exit 1
+```
+
+---
+
+# ⚠ Performance Considerations
+
+Running a full GUI desktop inside Kubernetes is resource-intensive.
+
+High RAM consumers:
+- Chrome
+- Firefox
+- Wine
+- Java (Angry IP Scanner)
+- Wireshark GUI
+
+For production environments, consider creating:
+
+- `networkos-lite` (no Wine, no Chrome, no Wireshark GUI)
+- `networkos-full` (complete lab image)
+
+---
+
+# 🪟 Running Windows Tools
 
 ```bash
 wine mytool.exe
 ```
 
-Install a Windows application:
-
-```bash
-wine installer.exe
-```
-
-Wine data is stored in:
+Wine data lives in:
 
 ```
 /root/.wine
 ```
 
-Persist `/root` if you want to keep installations.
+Persist `/root` to keep installations.
 
 ---
 
 # 🔒 Security Notes
 
-- VNC server runs internally without password.
+- VNC server runs without internal password.
 - noVNC can be protected with `NOVNC_PASSWORD`.
-- Always use HTTPS when exposing publicly.
-- Consider:
-  - Reverse proxy authentication
+- For internet exposure:
+  - Use HTTPS reverse proxy
   - IP allowlisting
   - VPN-only access
-  - Cloudflare Access / Zero Trust
+  - Cloudflare Zero Trust
 
 ---
 
-# 🎯 Example Use Cases
+# 🎯 Use Cases
 
 - Network penetration testing lab
 - Remote Wireshark workstation
-- Browser-isolated admin workstation
-- Running vendor Windows utilities
-- Security training environment
-- Temporary forensic workstation
-- On-demand troubleshooting desktop
+- Vendor Windows utilities via Wine
+- Training environments
+- Temporary troubleshooting desktop
 
 ---
 
@@ -230,16 +279,12 @@ After running:
 http://your-server-ip:8080
 ```
 
-If `NOVNC_PASSWORD` is set, you will be prompted for credentials.
-
----
-
-# 🏷 Project Status
-
-Active development. Contributions welcome.
+Login prompt appears if `NOVNC_PASSWORD` is set.
 
 ---
 
 # 📜 License
 
-MIT License (or specify your preferred license)
+MIT License
+
+---
