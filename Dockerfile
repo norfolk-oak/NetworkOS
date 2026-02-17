@@ -12,10 +12,13 @@ ENV NOVNC_PORT=8080
 ENV NOVNC_USER=admin
 ENV NOVNC_PASSWORD=""
 
+# Wine defaults (you can override at runtime)
+ENV WINEDEBUG=-all
+
 # 0) Enable 32-bit architecture for Wine (needed for many Windows apps)
 RUN dpkg --add-architecture i386
 
-# 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine
+# 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine + Angry IP Scanner
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Desktop
     lxde-core lxterminal dbus dbus-x11 x11-xserver-utils \
@@ -31,12 +34,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tcpdump tshark tcpflow wireshark \
     iperf3 ethtool ipcalc net-tools lsof whois \
     netcat-openbsd socat \
-    # Wine (Windows apps)
-    wine64 wine32 winetricks cabextract fonts-wine \
+    # Angry IP Scanner (Java GUI)
+    openjdk-17-jre ipscan \
+    # Wine (Windows apps) + common runtime deps
+    wine64 wine32 winetricks cabextract fonts-wine winbind \
+    # Wine GUI/runtime deps that often fix "wine not working" in containers
+    libgl1 libgl1-mesa-dri libasound2 libasound2-plugins libpulse0 \
+    fonts-dejavu-core fonts-dejavu-extra \
     # Browser(s)
     firefox \
     # Chrome runtime deps that often matter in minimal images
-    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 \
+    fonts-liberation libatk-bridge2.0-0 libatk1.0-0 libcups2 \
     libdrm2 libgbm1 libgtk-3-0 libnss3 libxss1 libxcomposite1 libxrandr2 \
     libxdamage1 libxkbcommon0 xdg-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -63,6 +71,17 @@ Categories=Network;
 EOF
 RUN chmod +x /root/Desktop/wireshark.desktop
 
+# Angry IP Scanner desktop icon (may be "ipscan" depending on distro)
+RUN cat > /root/Desktop/angry-ip-scanner.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Angry IP Scanner
+Exec=ipscan
+Icon=ipscan
+Categories=Network;
+EOF
+RUN chmod +x /root/Desktop/angry-ip-scanner.desktop
+
 # 4) noVNC default landing page (autoconnect + scaling)
 RUN echo '<html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale"></head></html>' \
   > /usr/share/novnc/index.html
@@ -81,7 +100,7 @@ show_trash=1
 show_mounts=1
 EOF
 
-# 6) Entrypoint (fix LXDE "No session for pid" + optional noVNC Basic Auth)
+# 6) Entrypoint (fix LXDE "No session for pid" + optional noVNC Basic Auth + init Wine)
 RUN cat > /entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
 set -e
@@ -96,7 +115,7 @@ export XDG_RUNTIME_DIR="/tmp/runtime-root"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# Create VNC xstartup that launches LXDE under a DBus session (container-safe)
+# Create VNC xstartup that launches LXDE under a DBus session
 mkdir -p /root/.vnc
 cat > /root/.vnc/xstartup <<'XEOF'
 #!/bin/sh
@@ -107,18 +126,23 @@ export XDG_RUNTIME_DIR="/tmp/runtime-root"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
-# Start LXDE inside a DBus session
 exec dbus-launch --exit-with-session startlxde
 XEOF
 chmod +x /root/.vnc/xstartup
 
-# Start VNC server (NO VNC auth; protect via noVNC or reverse proxy)
+# Start VNC server
 vncserver "${DISPLAY}" \
   -SecurityTypes None \
   -geometry "${VNC_RESOLUTION}" \
   -xstartup /root/.vnc/xstartup
 
-# noVNC -> VNC (optional Basic Auth)
+# Initialize Wine on first boot (needs DISPLAY/X available)
+if [ ! -d /root/.wine ]; then
+  echo "Initializing Wine prefix..."
+  (export DISPLAY="${DISPLAY}"; wineboot --init >/tmp/wineboot.log 2>&1 || true) &
+fi
+
+# Start noVNC (optional Basic Auth)
 if [ -n "${NOVNC_PASSWORD:-}" ]; then
   exec /usr/share/novnc/utils/launch.sh \
     --vnc "localhost:${VNC_PORT}" \
