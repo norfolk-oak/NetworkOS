@@ -18,7 +18,7 @@ RUN dpkg --add-architecture i386
 # 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Desktop
-    lxde-core lxterminal dbus-x11 x11-xserver-utils \
+    lxde-core lxterminal dbus dbus-x11 x11-xserver-utils \
     # VNC/noVNC
     tigervnc-standalone-server novnc websockify \
     # Base utilities
@@ -81,7 +81,7 @@ show_trash=1
 show_mounts=1
 EOF
 
-# 6) Entrypoint (adds optional noVNC Basic Auth)
+# 6) Entrypoint (fix LXDE "No session for pid" + optional noVNC Basic Auth)
 RUN cat > /entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
 set -e
@@ -91,22 +91,34 @@ VNC_PORT="$((5900 + DISP_NUM))"
 
 rm -rf /tmp/.X11-unix /tmp/.X*-lock || true
 
+# Provide a runtime dir (prevents session/logind related errors in containers)
+export XDG_RUNTIME_DIR="/tmp/runtime-root"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Create VNC xstartup that launches LXDE under a DBus session (container-safe)
+mkdir -p /root/.vnc
+cat > /root/.vnc/xstartup <<'XEOF'
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+
+export XDG_RUNTIME_DIR="/tmp/runtime-root"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Start LXDE inside a DBus session
+exec dbus-launch --exit-with-session startlxde
+XEOF
+chmod +x /root/.vnc/xstartup
+
+# Start VNC server (NO VNC auth; protect via noVNC or reverse proxy)
 vncserver "${DISPLAY}" \
   -SecurityTypes None \
   -geometry "${VNC_RESOLUTION}" \
-  -xstartup /usr/bin/startlxde
+  -xstartup /root/.vnc/xstartup
 
-# If NOVNC_PASSWORD is set, enable Basic Auth for noVNC/websockify
-AUTH_ARG=""
-if [ -n "${NOVNC_PASSWORD:-}" ]; then
-  mkdir -p /etc/novnc
-  printf "%s:%s\n" "${NOVNC_USER:-admin}" "${NOVNC_PASSWORD}" > /etc/novnc/htpasswd
-  AUTH_ARG="--web-auth /usr/share/novnc --cert none --ssl-only 0 --auth-plugin BasicHTTPAuth --auth-source /etc/novnc/htpasswd"
-  # Note: above uses websockify auth plugin if available; fallback below if not.
-fi
-
-# Prefer the built-in noVNC launch script; enable auth if supported
-# Many distros support: --basic-auth user:pass
+# noVNC -> VNC (optional Basic Auth)
 if [ -n "${NOVNC_PASSWORD:-}" ]; then
   exec /usr/share/novnc/utils/launch.sh \
     --vnc "localhost:${VNC_PORT}" \
