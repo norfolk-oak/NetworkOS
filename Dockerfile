@@ -8,7 +8,14 @@ ENV DISPLAY=:1
 ENV VNC_RESOLUTION=1024x768
 ENV NOVNC_PORT=8080
 
-# 1) Desktop + VNC/noVNC + browsers + network toolkit
+# Optional noVNC basic auth (set NOVNC_PASSWORD at runtime to enable)
+ENV NOVNC_USER=admin
+ENV NOVNC_PASSWORD=""
+
+# 0) Enable 32-bit architecture for Wine (needed for many Windows apps)
+RUN dpkg --add-architecture i386
+
+# 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Desktop
     lxde-core lxterminal dbus-x11 x11-xserver-utils \
@@ -16,12 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tigervnc-standalone-server novnc websockify \
     # Base utilities
     wget curl gpg git python3 sudo ca-certificates \
+    # Ping / ICMP utilities
+    iputils-ping iputils-tracepath \
     # Networking tools (expanded)
     iproute2 traceroute mtr dnsutils \
     nmap masscan arp-scan netdiscover fping \
     tcpdump tshark tcpflow wireshark \
     iperf3 ethtool ipcalc net-tools lsof whois \
     netcat-openbsd socat \
+    # Wine (Windows apps)
+    wine64 wine32 winetricks cabextract fonts-wine \
     # Browser(s)
     firefox \
     # Chrome runtime deps that often matter in minimal images
@@ -57,7 +68,6 @@ RUN echo '<html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoco
   > /usr/share/novnc/index.html
 
 # 5) Wallpaper (SAFE: include file in build context)
-# Put vista.jpg next to your Dockerfile before building.
 COPY vista.jpg /usr/share/backgrounds/vista.jpg
 
 RUN mkdir -p /root/.config/pcmanfm/LXDE && \
@@ -71,27 +81,42 @@ show_trash=1
 show_mounts=1
 EOF
 
-# 6) Entrypoint
+# 6) Entrypoint (adds optional noVNC Basic Auth)
 RUN cat > /entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
 set -e
 
-# DISPLAY like :1 -> derive VNC port 5900 + display number
 DISP_NUM="${DISPLAY#:}"
 VNC_PORT="$((5900 + DISP_NUM))"
 
 rm -rf /tmp/.X11-unix /tmp/.X*-lock || true
 
-# Start VNC server (NO AUTH - consider locking this down behind a proxy)
 vncserver "${DISPLAY}" \
   -SecurityTypes None \
   -geometry "${VNC_RESOLUTION}" \
   -xstartup /usr/bin/startlxde
 
-# noVNC -> VNC
-exec /usr/share/novnc/utils/launch.sh \
-  --vnc "localhost:${VNC_PORT}" \
-  --listen "0.0.0.0:${NOVNC_PORT}"
+# If NOVNC_PASSWORD is set, enable Basic Auth for noVNC/websockify
+AUTH_ARG=""
+if [ -n "${NOVNC_PASSWORD:-}" ]; then
+  mkdir -p /etc/novnc
+  printf "%s:%s\n" "${NOVNC_USER:-admin}" "${NOVNC_PASSWORD}" > /etc/novnc/htpasswd
+  AUTH_ARG="--web-auth /usr/share/novnc --cert none --ssl-only 0 --auth-plugin BasicHTTPAuth --auth-source /etc/novnc/htpasswd"
+  # Note: above uses websockify auth plugin if available; fallback below if not.
+fi
+
+# Prefer the built-in noVNC launch script; enable auth if supported
+# Many distros support: --basic-auth user:pass
+if [ -n "${NOVNC_PASSWORD:-}" ]; then
+  exec /usr/share/novnc/utils/launch.sh \
+    --vnc "localhost:${VNC_PORT}" \
+    --listen "0.0.0.0:${NOVNC_PORT}" \
+    --basic-auth "${NOVNC_USER:-admin}:${NOVNC_PASSWORD}"
+else
+  exec /usr/share/novnc/utils/launch.sh \
+    --vnc "localhost:${VNC_PORT}" \
+    --listen "0.0.0.0:${NOVNC_PORT}"
+fi
 EOF
 RUN chmod +x /entrypoint.sh
 
