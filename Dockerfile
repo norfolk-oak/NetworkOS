@@ -14,14 +14,21 @@ ENV NOVNC_PASSWORD=""
 
 # Wine defaults (you can override at runtime)
 ENV WINEDEBUG=-all
+# Prevent Wine prompting to download/install Gecko/Mono in headless-ish scenarios
+ENV WINEDLLOVERRIDES="mscoree,mshtml="
 
 # Angry IP Scanner version (GitHub release .deb)
 ARG IPSCAN_VERSION=3.9.3
 
+# Notepad++ + WinRAR versions/URLs (Windows installers; installed via Wine at first boot)
+ARG NPP_VERSION=8.6.6
+ARG NPP_URL="https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6.6/npp.8.6.6.Installer.x64.exe"
+ARG WINRAR_URL="https://www.win-rar.com/fileadmin/winrar-versions/winrar/winrar-x64-720.exe"
+
 # 0) Enable 32-bit architecture for Wine (needed for many Windows apps)
 RUN dpkg --add-architecture i386
 
-# 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine + Wine GUIs
+# 1) Desktop + VNC/noVNC + browsers + network toolkit + ping + wine
 # Fixes:
 # - enable Universe (masscan often lives there)
 # - preseed wireshark prompt (even if not on desktop, package can prompt)
@@ -53,8 +60,6 @@ RUN set -eux; \
       openjdk-17-jre \
       # Wine (Windows apps) + common runtime deps
       wine64 wine32 winetricks cabextract fonts-wine winbind \
-      # Wine GUI front-ends (helps users install/manage apps)
-      q4wine playonlinux \
       # Wine GUI/runtime deps that often fix "wine not working" in containers
       libgl1 libgl1-mesa-dri libasound2 libasound2-plugins libpulse0 \
       fonts-dejavu-core fonts-dejavu-extra \
@@ -76,6 +81,14 @@ RUN set -eux; \
     rm -f /tmp/ipscan.deb; \
     rm -rf /var/lib/apt/lists/*
 
+# 1c) Download Windows installers to bake into the image (installed on first boot when X is available)
+RUN set -eux; \
+    mkdir -p /opt/win-installers; \
+    curl -fsSL -o "/opt/win-installers/npp-${NPP_VERSION}.exe" "${NPP_URL}"; \
+    # WinRAR site can be picky about user-agent; set one explicitly
+    curl -fsSL -A "Mozilla/5.0" -o "/opt/win-installers/winrar-x64.exe" "${WINRAR_URL}"; \
+    chmod 644 /opt/win-installers/*.exe
+
 # 2) Install Google Chrome
 RUN set -eux; \
     wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
@@ -89,8 +102,6 @@ RUN set -eux; \
       /opt/google/chrome/google-chrome
 
 # 3) Desktop Icons
-# - Angry IP Scanner on desktop
-# - Wine helpers on desktop (GUI-friendly for installs/config)
 RUN mkdir -p /root/Desktop && \
     cat > /root/Desktop/angry-ip-scanner.desktop <<'EOF'
 [Desktop Entry]
@@ -136,29 +147,30 @@ Terminal=false
 EOF
 RUN chmod +x /root/Desktop/winetricks.desktop
 
-RUN cat > /root/Desktop/q4wine.desktop <<'EOF'
+# Desktop launchers for the preinstalled Windows apps (installed at first boot)
+RUN cat > /root/Desktop/notepadpp.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=Q4Wine (Wine Manager)
-Exec=q4wine
-Icon=q4wine
+Name=Notepad++
+Exec=env WINEDEBUG=-all wine "C:\\Program Files\\Notepad++\\notepad++.exe"
+Icon=wine
 Categories=Wine;
 Terminal=false
 EOF
-RUN chmod +x /root/Desktop/q4wine.desktop
+RUN chmod +x /root/Desktop/notepadpp.desktop
 
-RUN cat > /root/Desktop/playonlinux.desktop <<'EOF'
+RUN cat > /root/Desktop/winrar.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=PlayOnLinux (Install Wizard)
-Exec=playonlinux
-Icon=playonlinux
+Name=WinRAR
+Exec=env WINEDEBUG=-all wine "C:\\Program Files\\WinRAR\\WinRAR.exe"
+Icon=wine
 Categories=Wine;
 Terminal=false
 EOF
-RUN chmod +x /root/Desktop/playonlinux.desktop
+RUN chmod +x /root/Desktop/winrar.desktop
 
-# 3b) Update menu caches (ensure new apps show up)
+# Update LXDE menu cache (ensure new apps show up)
 RUN update-desktop-database /usr/share/applications || true
 
 # 4) noVNC default landing page (autoconnect + scaling)
@@ -180,8 +192,9 @@ show_mounts=1
 EOF
 
 # 6) Entrypoint:
-# - fixes LXDE "No session for pid" by launching LXDE under dbus-launch
+# - launches LXDE under dbus-launch
 # - initializes Wine prefix once
+# - installs Notepad++ + WinRAR on first boot (silent) after X is up
 # - implements reliable noVNC password protection using nginx basic auth (WebSocket-safe)
 RUN cat > /entrypoint.sh <<'EOF'
 #!/usr/bin/env bash
@@ -234,6 +247,25 @@ if [ ! -d /root/.wine ]; then
   echo "[INFO] Initializing Wine prefix..."
   (export DISPLAY="${DISPLAY}"; wineboot --init >/tmp/wineboot.log 2>&1 || true) &
 fi
+
+# Install bundled Windows apps once (Notepad++, WinRAR)
+# We wait briefly so X is ready (helps avoid odd Wine first-run issues)
+(
+  sleep 3
+  export DISPLAY="${DISPLAY}"
+  export WINEDEBUG="${WINEDEBUG:- -all}"
+  export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
+
+  if [ ! -f "/root/.wine/drive_c/Program Files/Notepad++/notepad++.exe" ] && [ -f "/opt/win-installers/npp-"*.exe ]; then
+    echo "[INFO] Installing Notepad++ via Wine (silent)..."
+    wine start /wait "/opt/win-installers/npp-"*.exe /S || true
+  fi
+
+  if [ ! -f "/root/.wine/drive_c/Program Files/WinRAR/WinRAR.exe" ] && [ -f "/opt/win-installers/winrar-x64.exe" ]; then
+    echo "[INFO] Installing WinRAR via Wine (silent)..."
+    wine start /wait "/opt/win-installers/winrar-x64.exe" /S || true
+  fi
+) &
 
 # Start noVNC
 # If NOVNC_PASSWORD is set, use nginx basic auth in front of websockify
