@@ -58,71 +58,60 @@ Everything runs inside a Docker container and is accessed via **noVNC** in your 
 - `dnsutils`
 - `whois`
 
-### Utilities
-- `netcat`
-- `socat`
-- `ethtool`
-- `ipcalc`
-- `net-tools`
-- `lsof`
+---
+
+# 🪟 Windows Applications (Preinstalled via Wine)
+
+NetworkOS includes pre-installed Windows tools using Wine.
+
+## Included Windows Software
+
+### 📝 Notepad++
+- Lightweight code editor
+- Great for logs, configs, scripts
+- Runs via Wine
+- Desktop shortcut included
+
+### 📦 WinRAR
+- Archive manager
+- Supports RAR, ZIP, 7z, TAR, etc.
+- Desktop shortcut included
 
 ---
 
-# 🪟 Wine & Windows Application Support
+# 🪟 Wine Support
 
-Wine is fully configured with GUI management tools.
+Wine is installed and configured with:
 
-## Installed Wine Tools
+- Winecfg
+- Wine File Manager
+- Winetricks (GUI)
 
-- **Winecfg** (Wine configuration)
-- **Wine File Manager**
-- **Winetricks (GUI)**
-- **Q4Wine (Wine environment manager)**
-- **PlayOnLinux (installation wizard)**
-
-These tools allow users to:
-
-- Install Windows applications via GUI
-- Manage separate Wine prefixes
-- Install .NET / DirectX runtimes
-- Configure DLL overrides
-- Switch Windows versions
-
----
-
-## Running Windows Applications
-
-### Install via GUI
-Use:
-- PlayOnLinux
-- Q4Wine
-- Winetricks GUI
-
-### Manual install
-```bash
-wine installer.exe
-```
-
-### Launch application
-```bash
-wine program.exe
-```
-
-Wine prefix is stored at:
+Wine prefix location:
 
 ```
 /root/.wine
 ```
 
-Persist `/root` to retain installations.
+To install additional Windows programs:
+
+```bash
+wine installer.exe
+```
+
+To launch manually:
+
+```bash
+wine program.exe
+```
 
 ---
 
 # 🔐 noVNC Password Protection
 
-NetworkOS uses **nginx-based Basic Authentication** in front of noVNC.
+NetworkOS uses nginx-based Basic Authentication in front of noVNC.
 
-To enable:
+Enable authentication:
 
 ```bash
 docker run -d \
@@ -133,9 +122,7 @@ docker run -d \
   networkos
 ```
 
-You will see a browser login prompt.
-
-If `NOVNC_PASSWORD` is not set, authentication is disabled.
+If `NOVNC_PASSWORD` is not set, no authentication is applied.
 
 ---
 
@@ -168,7 +155,7 @@ http://localhost:8080
 
 # 💾 Persistence
 
-To persist desktop data, Wine installs, browsers, etc:
+To preserve installed Windows applications and Wine data:
 
 ```bash
 docker run -d \
@@ -181,70 +168,23 @@ docker run -d \
 
 ---
 
-# 🐳 Required Docker Capabilities
-
-Some tools require extra privileges:
-
-```bash
---cap-add NET_ADMIN
---cap-add NET_RAW
-```
-
-To scan host LAN (Linux only):
-
-```bash
---network host
-```
-
----
-
-# ☸ Kubernetes / Northflank / Cloud Deployments
+# ☸ Kubernetes / Cloud Deployments
 
 This image is resource-heavy.
 
-### Minimum recommended resources:
+### Recommended:
 
 - 4GB RAM minimum
-- 6–8GB recommended
+- 6–8GB RAM recommended
 - 2 vCPU minimum
 
-If you see pods marked:
+If pods show:
 
 ```
 Evicted
 ```
 
-It is typically due to memory pressure.
-
-### Suggested resource limits:
-
-```yaml
-resources:
-  requests:
-    memory: "4Gi"
-    cpu: "1000m"
-  limits:
-    memory: "8Gi"
-    cpu: "2000m"
-```
-
----
-
-# ⚠ Performance Notes
-
-High memory consumers:
-
-- Chrome
-- Firefox
-- Wine
-- Java (Angry IP Scanner)
-- Wireshark GUI
-
-For production, consider a lighter variant without:
-
-- Chrome
-- Wine
-- Wireshark GUI
+Increase memory limits.
 
 ---
 
@@ -252,34 +192,20 @@ For production, consider a lighter variant without:
 
 - VNC runs internally without password.
 - nginx protects noVNC when `NOVNC_PASSWORD` is set.
-- Always use HTTPS when exposing publicly.
+- Use HTTPS when exposing publicly.
 - Recommended:
   - Reverse proxy
   - VPN
   - IP allowlisting
-  - Cloudflare Zero Trust
 
 ---
 
 # 🧪 Use Cases
 
 - Network lab environment
+- Windows vendor tools in Linux container
 - Remote troubleshooting desktop
-- Windows-only vendor tools via Wine
-- Security training lab
-- Temporary forensic workstation
-
----
-
-# 🌍 Access
-
-After running:
-
-```
-http://your-server-ip:8080
-```
-
-Login prompt appears if password is enabled.
+- Temporary security workstation
 
 ---
 
