@@ -1,40 +1,99 @@
 FROM ubuntu:22.04
 
 LABEL maintainer="NetworkOS Project"
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
 ENV DISPLAY=:1
 ENV VNC_RESOLUTION=1024x768
+ENV NOVNC_PORT=8080
 
-# 1. Install LXDE (CORE ONLY), VNC, NoVNC, and Networking tools
+# 1) Desktop + VNC/noVNC + browsers + network toolkit
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    lxde-core lxterminal \
+    # Desktop
+    lxde-core lxterminal dbus-x11 x11-xserver-utils \
+    # VNC/noVNC
     tigervnc-standalone-server novnc websockify \
-    wget curl gpg git python3 sudo net-tools iputils-ping \
-    nmap wireshark tcpdump iperf3 mtr dnsutils firefox \
-    && apt-get clean
+    # Base utilities
+    wget curl gpg git python3 sudo ca-certificates \
+    # Networking tools (expanded)
+    iproute2 traceroute mtr dnsutils \
+    nmap masscan arp-scan netdiscover fping \
+    tcpdump tshark tcpflow wireshark \
+    iperf3 ethtool ipcalc net-tools lsof whois \
+    netcat-openbsd socat \
+    # Browser(s)
+    firefox \
+    # Chrome runtime deps that often matter in minimal images
+    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 \
+    libdrm2 libgbm1 libgtk-3-0 libnss3 libxss1 libxcomposite1 libxrandr2 \
+    libxdamage1 libxkbcommon0 xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Google Chrome (Reduced Memory Mode)
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /usr/share/keyrings/google-archive-keyring.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && apt-get install -y google-chrome-stable && \
-    sed -i 's|HERE/chrome\"|HERE/chrome\" --no-sandbox --disable-dev-shm-usage --disable-gpu|g' /opt/google/chrome/google-chrome
+# 2) Install Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
+      | gpg --dearmor > /usr/share/keyrings/google-archive-keyring.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-archive-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+      > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && apt-get install -y --no-install-recommends google-chrome-stable && \
+    rm -rf /var/lib/apt/lists/* && \
+    sed -i 's|HERE/chrome"|HERE/chrome" --no-sandbox --disable-dev-shm-usage --disable-gpu|g' \
+      /opt/google/chrome/google-chrome
 
-# 3. Install WineHQ (Stable)
-RUN dpkg --add-architecture i386 && mkdir -pm755 /etc/apt/keyrings && \
-    wget -O - https://dl.winehq.org/wine-builds/winehq.key | gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key && \
-    wget -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/jammy/winehq-jammy.sources && \
-    apt-get update && apt-get install --install-recommends -y winehq-stable
+# 3) Desktop Icons
+RUN mkdir -p /root/Desktop && \
+    cat > /root/Desktop/wireshark.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Wireshark
+Exec=wireshark
+Icon=wireshark
+Categories=Network;
+EOF
+RUN chmod +x /root/Desktop/wireshark.desktop
 
-# 4. Set Default Page & Auto-Resize
-RUN echo '<html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale"></head></html>' > /usr/share/novnc/index.html
+# 4) noVNC default landing page (autoconnect + scaling)
+RUN echo '<html><head><meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true&resize=scale"></head></html>' \
+  > /usr/share/novnc/index.html
 
-# 5. Startup Script (LXDE for speed)
-RUN echo '#!/bin/bash\n\
-rm -rf /tmp/.X11-unix /tmp/.X*-lock\n\
-vncserver -SecurityTypes None -geometry $VNC_RESOLUTION $DISPLAY -xstartup /usr/bin/startlxde\n\
-/usr/share/novnc/utils/launch.sh --vnc localhost:5901 --listen 8080' > /entrypoint.sh && \
-chmod +x /entrypoint.sh
+# 5) Wallpaper (SAFE: include file in build context)
+# Put vista.jpg next to your Dockerfile before building.
+COPY vista.jpg /usr/share/backgrounds/vista.jpg
+
+RUN mkdir -p /root/.config/pcmanfm/LXDE && \
+    cat > /root/.config/pcmanfm/LXDE/desktop-items-0.conf <<'EOF'
+[*]
+wallpaper_mode=stretch
+wallpaper=/usr/share/backgrounds/vista.jpg
+desktop_bg=#000000
+show_documents=0
+show_trash=1
+show_mounts=1
+EOF
+
+# 6) Entrypoint
+RUN cat > /entrypoint.sh <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+# DISPLAY like :1 -> derive VNC port 5900 + display number
+DISP_NUM="${DISPLAY#:}"
+VNC_PORT="$((5900 + DISP_NUM))"
+
+rm -rf /tmp/.X11-unix /tmp/.X*-lock || true
+
+# Start VNC server (NO AUTH - consider locking this down behind a proxy)
+vncserver "${DISPLAY}" \
+  -SecurityTypes None \
+  -geometry "${VNC_RESOLUTION}" \
+  -xstartup /usr/bin/startlxde
+
+# noVNC -> VNC
+exec /usr/share/novnc/utils/launch.sh \
+  --vnc "localhost:${VNC_PORT}" \
+  --listen "0.0.0.0:${NOVNC_PORT}"
+EOF
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
